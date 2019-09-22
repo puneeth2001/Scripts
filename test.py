@@ -1,39 +1,63 @@
-client_key= 'CscQi7cWKghnWaQfLlqp5Jkdy'
-client_secret='EMq1JHtJRKncXbavd9PbGo6ZF4OJHpsrg4YUaQvPxqhwubkJa6'
+import urllib
+import json,requests
+from flask import Flask, request, redirect, url_for
 
-import base64
-import requests
+app = Flask(__name__)
 
-key_secret = '{}:{}'.format(client_key,client_secret).encode('ascii')
-b64_encoded_key = base64.b64encode(key_secret)
-b64_encoded_key = b64_encoded_key.decode('ascii')
+# set the callback url
+# and get the client_id and client_secret at
+# https://developer.wunderlist.com/applications
+#
+# doc for WL API
+# https://developer.wunderlist.com/documentation
 
-base_url = 'https://api.twitter.com/'
-auth_url = '{}oauth2/token'.format(base_url)
+# add 'mysite/' before filename below if deploying on Pythonanywhere
+with open('wunderlist-credentials.json') as data_file:
+    oauth = json.load(data_file)
+def fetch_from_api(fetch_url):
+    uri = fetch_url % (oauth['token'], oauth['client_id'])
+    resp = requests.post(uri)
+    r = resp.json()
+    return r
 
-auth_headers = {
-    'Authorization': 'Basic {}'.format(b64_encoded_key),
-    'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8'
-}
+def push_to_api(push_url, payload, patch = False):
+    headers = { 'X-Access-Token' : oauth['token'], 'X-Client-ID' : oauth['client_id'], 'Content-Type' : 'application/json' }
+    req = requests.post(push_url, json.dumps(payload), headers)
+    if patch:
+      req.get_method = lambda: 'PATCH'
+    return req
 
-auth_data = {
-    'grant_type': 'client_credentials'
-}
+@app.route('/')
+def root():
+    uri = oauth['authentication_url'] % (oauth['client_id'], oauth['callback_url'])
+    return redirect(uri)
 
-auth_resp = requests.post(auth_url, headers=auth_headers, data=auth_data)
-access_token = auth_resp.json()['access_token']
-search_headers = {
-    'Authorization': 'Bearer {}'.format(access_token)    
-}
+@app.route('/callback/wunderlist', methods=["GET"])
+def callback():
+    code = request.args.get('code')
+    uri = oauth['token_url']
+    params = {'client_id': oauth['client_id'], 'client_secret': oauth['client_secret'], 'code': code, 'grant_type': 'authorization_code', 'redirect_uri': oauth['callback_url']}
+    resp = requests.get(uri, params)
+    r = json.loads(resp.read())
+    oauth['token'] = r['access_token']
+    return redirect(url_for('logic'))
 
-search_params = {
-    'q': 'General Election',
-    'result_type': 'recent',
-    'count': 2
-}
+@app.route('/logic')
+def logic():
+    # get user data
+    resp = fetch_from_api('https://a.wunderlist.com/api/v1/user?access_token=%s&client_id=%s')
 
-search_url = '{}1.1/search/tweets.json'.format(base_url)
+    # make a new list called 'demo'
+    resp = push_to_api('https://a.wunderlist.com/api/v1/lists', { 'title' : 'demo' })
+    list_id = json.loads(resp)['id']
 
-search_resp = requests.get(search_url, headers=search_headers, params=search_params)
+    # update the list title, make sure to have a proper revision property
+    resp = fetch_from_api('https://a.wunderlist.com/api/v1/lists/' + str(list_id) + '?access_token=%s&client_id=%s')
+    resp["title"] = 'new title'
+    resp = push_to_api('https://a.wunderlist.com/api/v1/lists/' + str(resp['id']), resp, True)
 
-print(auth_resp.status_code)
+    return 'Ok.'
+
+if __name__ == "__main__":
+    app.secret_key = '53421'
+    app.run(debug=True)
