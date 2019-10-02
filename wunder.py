@@ -47,9 +47,9 @@ def callback():
     sobject = slice(8,10)
     for i in j:
         if(i['completed_at'][sobject]>'20'):
-	k = open("completed.txt","w+")            
-	k.write(i['title']+"\r\n")
-	k.close()    
+		k = open("completed.txt","w+")            
+		k.write(i['title']+"\r\n")
+		k.close()    
     return "Ok"
 
 
